@@ -48,18 +48,18 @@ int main (int argc, char *argv[]){
 	printf("In Child - simClock [1] is %d\n", simClock[1]);
 	
 	//message queue
-	if ((messageBoxID = msgget(messageQueueKey, 0666)) == -1){
-		perror("user: failed to acceess parent message box");
-		}
+//	if ((messageBoxID = msgget(messageQueueKey, 0666)) == -1){
+//		perror("user: failed to acceess parent message box");
+//		}
 
 
 	//CRITICAL SECTION
 
 
-		msgrcv(messageBoxID, &message, sizeof(message), 1, 0); //retrieve message from max box.  child is blocked unless there is a message to take from box
+//		msgrcv(messageBoxID, &message, sizeof(message), 1, 0); //retrieve message from max box.  child is blocked unless there is a message to take from box
 
 		printf("IN CHILD - mesg_type is %ld\n", message.mesg_type);
-		printf("IN CHILD - time slice is %d\n", message.timeSlice);
+		printf("IN CHILD - time slice is %d\n", message.timeSliceAssigned);
 
 return 0;
 
