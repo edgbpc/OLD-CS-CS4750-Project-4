@@ -29,19 +29,22 @@ void handle(int signo);
 
 //structures
 typedef struct {
-	int PCB_testBit;
-	int PCB_CPUTimeUsed;
-	int PCB_totalTimeInSystem;
-	int PCB_timeUsedLastBurst;
-	int PCB_localSimPid;
-	int PCB_processPriority;
+	int PCB_testBit; //used to test if children could access shared memory
+	int PCB_CPUTimeUsed; //CPU Time Used
+	int PCB_totalTimeInSystem; //total time in the system
+	int PCB_timeUsedLastBurst; //time used during the last burst
+	int PCB_localSimPid; //local simulated pid
+	int PCB_processPriority; //process priority, if any
 
 } ProcessControlBlock;
 
 
 typedef struct {
 	long mesg_type; //always 1
-	int timeSlice;
+	int PCBTableLocation; //to indicate what index the process is stored in the processcontroltable
+	int timeSliceAssigned;
+	int timeSliceUsed;
+	int timeSloveUnused;
 } Message;
 
 //variables
