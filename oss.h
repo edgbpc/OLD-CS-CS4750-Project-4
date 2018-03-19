@@ -15,16 +15,13 @@
 #include <sys/msg.h>
 #include <signal.h>
 #include <errno.h>
-
+#include <stdbool.h>
+#include <limits.h>
 
 //macro :definations
 
 #define SHM_SIZE 100
 #define BILLION 1000000000L //taken from book
-
-//prototypes
-static int setperiodic(double sec);
-void handle(int signo);
 
 
 //structures
@@ -34,8 +31,9 @@ typedef struct {
 	int PCB_totalTimeInSystem; //total time in the system
 	int PCB_timeUsedLastBurst; //time used during the last burst
 	int PCB_localSimPid; //local simulated pid
-	int PCB_processPriority; //process priority, if any
-
+	int PCB_processPriority; //process priority, if any.
+	int PCB_processBlocked;
+	
 } ProcessControlBlock;
 
 
@@ -44,13 +42,35 @@ typedef struct {
 	int PCBTableLocation; //to indicate what index the process is stored in the processcontroltable
 	int timeSliceAssigned;
 	int timeSliceUsed;
-	int timeSloveUnused;
+	int timeSliceUnused;
+	bool didTerminate;
 } Message;
 
+typedef struct
+{
+    int front, rear, size;
+    unsigned capacity;
+    int* array;
+} Queue;
+
+//prototypes
+static int setperiodic(double sec);
+void handle(int signo);
+int assignTimeSlice(int processPriority);
+void dispatch(Queue* roundRobinQueue, int PCBIndex);
+
+//Queue Prototypes
+Queue* createQueue(unsigned capacity);
+int isFull(Queue* queue);
+int isEmpty(Queue* queue);
+void enqueue(Queue* queue, int item);
+int dequeue(Queue* queue);
+int front(Queue* queue);
+int rear(Queue* queue);
 //variables
 //
 //
-
+Message message;
 int messageBoxID;
 int shmidSimClock;
 int shmidPCB;
