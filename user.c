@@ -1,8 +1,13 @@
 #include "oss.h"
 
-Message message;
 
 int main (int argc, char *argv[]){
+	
+	//seed random number generator
+	srand(time(NULL));
+	
+	int randomTerminateConstant = 5;
+	int randomBlockConstant = 0; //used to help determine if a process will Block.  value of 5 indicates 50% change to block 
 
 	if (signal(SIGINT, handle) == SIG_ERR){
 		perror("signal failed");
@@ -15,16 +20,6 @@ int main (int argc, char *argv[]){
 	key_t keySimClock = 59566;
 	keyPCB = 59567;
 	
-
-//TESTING ONLY
-//char sampleMessage[20] = "A test message";
-//strcpy(message.mesg_text, sampleMessage);
-//msgsnd(msgid, &message, sizeof(message), 0);
-//
-//printf("Data sent from child was %s\n", message.mesg_text);
-//END TESTING
-
-
 	//Get Shared Memory
 	if ((shmidSimClock = shmget(keySimClock, SHM_SIZE, 0666)) == -1){
 		perror("user: could not get shmidSimClock\n");
@@ -42,26 +37,66 @@ int main (int argc, char *argv[]){
 	 unsigned int * simClock= (int *)(shmat(shmidSimClock, 0, 0));
 	ProcessControlBlock * PCBTable = (ProcessControlBlock *)(shmat(shmidPCB, 0, 0));
 	
-	printf("IN CHILD - PCBTable[0].testBit is %d\n", PCBTable[0].PCB_testBit);
 
 	printf("IN Child - simClock[0] is %d\n", simClock[0]);
 	printf("In Child - simClock [1] is %d\n", simClock[1]);
 	
 	//message queue
-//	if ((messageBoxID = msgget(messageQueueKey, 0666)) == -1){
-//		perror("user: failed to acceess parent message box");
-//		}
+	if ((messageBoxID = msgget(messageQueueKey, 0666)) == -1){
+		perror("user: failed to acceess parent message box");
+		}
+	msgrcv(messageBoxID, &message, sizeof(message), 1, 0); //retrieve message from max box.  child is blocked unless there is a message to take from box
+		
+	message.mesg_type = 1;
 
+	//PCBTable[message.PCBTableLocation].PCB_localSimPid = getpid();
 
-	//CRITICAL SECTION
+	
+	printf("IN CHILD - time slice is %d\n", message.timeSliceAssigned);
+	
+	//decide if terminates
+	int willTerminate = (rand() % 10) + 1;
+		//determine how much of its timeSLice to use from 0 to its max timeSliceAssigned
+		if (willTerminate < randomTerminateConstant){
+			//select how much of its timeSlice was used
+			message.timeSliceUsed = rand() % (message.timeSliceAssigned + 1 - 0) + 0;
+			printf("In CHILD - used %d amount of time slice\n", message.timeSliceUsed);
+			//build message to send to oss
+			
+			message.timeSliceUnused = message.timeSliceAssigned - message.timeSliceUsed;
+			message.didTerminate = true;
 
+			//send message to oss
+			if (msgsnd(messageBoxID, &message, sizeof(message), 0) == -1){
+				perror("user: failed to send to parent box");
+			}
+		
 
-//		msgrcv(messageBoxID, &message, sizeof(message), 1, 0); //retrieve message from max box.  child is blocked unless there is a message to take from box
+			exit(2);	
+		}
 
-		printf("IN CHILD - mesg_type is %ld\n", message.mesg_type);
-		printf("IN CHILD - time slice is %d\n", message.timeSliceAssigned);
+	//if willTerminate is false, drop to following code
+	
+	int getsBlockedByEvent = (rand() % 10) + 1;
+		
+		if (getsBlockedByEvent = randomBlockConstant){
+			printf("dfjaeldkfja;l\n");
 
-return 0;
+	
+		} else {
+			//executes of getsBlockedByEvent results in all time being used
+			message.timeSliceUsed = message.timeSliceAssigned;
+	//		message.PCBTableLocation = message.PCBTableLocation;
+		
+			printf("IN CHILD ELSE STATEMENT - timeSliceUsed is %d\n", message.timeSliceUsed);
+			if (msgsnd(messageBoxID, &message, sizeof(message), 0) == -1){
+				perror("user: failed to send to parent box");
+			}
+			
+		}
+
+		
+		
 
 }
 
