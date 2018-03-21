@@ -57,7 +57,8 @@ typedef struct
 static int setperiodic(double sec);
 void handle(int signo);
 int assignTimeSlice(int processPriority);
-void dispatch(Queue* roundRobinQueue, int PCBIndex);
+void scheduleProcess(Queue* queue, int PCBIndex);
+void dispatch();
 
 //Queue Prototypes
 Queue* createQueue(unsigned capacity);
