@@ -38,7 +38,7 @@ typedef struct {
 
 
 typedef struct {
-	long mesg_type; //always 1
+	long mesg_type; //1 message for OSS, 2 message for USER
 	int PCBTableLocation; //to indicate what index the process is stored in the processcontroltable
 	int timeSliceAssigned;
 	int timeSliceUsed;
