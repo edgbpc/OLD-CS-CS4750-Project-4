@@ -1,18 +1,18 @@
 #include "oss.h"
 
+unsigned int * simClock;
 
 int main (int argc, char *argv[]){
+	printf("USER has launced\n");
 	int myPID = getpid();
-//	printf("I received  %s from command line\n", argv[1]);
-//	int processPid = atoi(argv[1]);
-//	printf("I converted %s to a %d\n", argv[1], processPid);
-
 	int PCBTableLocation;
 	//seed random number generator
-	srand(time(NULL)+getpid());
 	
-	int randomBlockConstant = 0; //used to help determine if a process will Block.  value of 5 indicates 50% change to block 
-	int randomTerminateConstant = 25; //change this to increase or decrease chance process will terminate  
+	time_t timeSeed;
+	srand((int)time(&timeSeed) % getpid()); //%getpid used because children were all getting the same "random" time to run. 
+
+	int randomBlockConstant = 25 ; //used to help determine if a process will Block.  
+	int randomTerminateConstant = 90; //change this to increase or decrease chance process will terminate.  currently 50% to terminate
 	//signal handling
 	if (signal(SIGINT, handle) == SIG_ERR){
 		perror("signal failed");
@@ -33,7 +33,7 @@ int main (int argc, char *argv[]){
 	}
 	//Attach to shared memory and get simClock time
 	//used to determine how long the child lived for
-	unsigned int * simClock= (int *)(shmat(shmidSimClock, 0, 0));
+	simClock= (int *)(shmat(shmidSimClock, 0, 0));
 	ProcessControlBlock * PCBTable = (ProcessControlBlock *)(shmat(shmidPCB, 0, 0));
 	
 	//message queue key
@@ -44,73 +44,96 @@ int main (int argc, char *argv[]){
 		perror("user: failed to acceess parent message box");
 	}
 
-	int running = 0;
-while (1){
-	printf("USER:  simClock[0] is %d\n", simClock[0]);
-	printf("USER: simClock [1] is %d\n", simClock[1]);
-	//decide if terminates
+	//record when this process was created
+	int processCreatedNS = simClock[0];
+	int processCreatedSecs = simClock[1];
+	int running = 0;  //used to govern the inner loop starts out 0 so outer while immediately drops to being blocked waiting for a message
+	int timeSlice;
+	int location;
+	int timeSliceUsed;
+
+
+while (1){ //runs continously once process created but outer while loop will be blocked until message received from OSS.  
+	
 	int willTerminate = (rand() % 100) + 1;
-	printf("Process %d testing if terminate\n", getpid());
-	//decide if blocked by an event
-//	int getsBlockedByEvent = (rand() % 10) + 1;
-	int getsBlockedByEvent = 100;
-	printf("Process %d deciding if blocked by event\n", getpid());
-	if (running == 1){
-		printf("USER: RECEIVED A MESSAGE FROM PID %d\n", getppid());
-		printf("USER: time slice is %d\n", message.timeSliceAssigned);
+	int getsBlockedByEvent = (rand() % 100) + 1;
+	
+	while (running == 1){ //intially check will fail, dropping down to waiting for a message from OSS.
+	
 		//checks if program willTerminate.
 		if (willTerminate <= randomTerminateConstant){
 			//select how much of its timeSlice was used
-			int timeSliceUsed = rand() % (message.timeSliceAssigned + 1 - 0) + 0;
-			printf("USER: used %d amount of time slice\n", timeSliceUsed);
+			timeSliceUsed = rand() % (timeSlice + 1 - 0) + 0;
 			//update time used in PCBTable
+			PCBTable[message.PCBTableLocation].PCB_processBlocked = 0;
 			PCBTable[message.PCBTableLocation].PCB_timeUsedLastBurst = timeSliceUsed;
 			PCBTable[message.PCBTableLocation].PCB_totalTimeInSystem += timeSliceUsed;
-//			PCBTable[message.PCBTableLocation].PCB_localSimPid = getpid();
-			//notify OSS that process terminates
-			message.mesg_type = 1;
+			
+			//notify OSS that process terminated
+			message.mesg_type = getppid();
 			message.didTerminate = true;	
-			printf("Telling the OSS that USER termianted\n");
+			message.PCBTableLocation = location;
 			if (msgsnd(messageBoxID, &message, sizeof(message), IPC_NOWAIT) == -1){ //IPC_NOWAIT specified so eecution contineus to break
 				perror("user--------------: failed to send to parent box");
-					}
+				}
+			running = 0;
 			exit(1);	
 			printf("I should never print\n");
-		} else 	if (getsBlockedByEvent == randomBlockConstant){
-			//wait for an event lasts r.s seconds
+		} 
+	 	if (getsBlockedByEvent <= randomBlockConstant){
+			//wait for an event lasts r.s secondsi
 			int eventTimeLastedNS = rand() % 6; //range [0-5]  (r)
 			int eventTimeLastedSecs = rand() % 1001; //range [0-1000] (s)
 			int preempted = (rand() % 99) + 1; //range [1-99] (p)
-//			message.didTerminate = false;
-		} else {
-			//printf("-----------USER: PCB Location is %d\n", message.PCBTableLocation);
-			//printf("------------USER: IN CHILD GETS BLOCK EVENT IN ELSE\n");
+			PCBTable[message.PCBTableLocation].PCB_processBlocked = 1;
+			PCBTable[message.PCBTableLocation].PCB_blockedWakeUpNS = simClock[0] + eventTimeLastedNS;
+			PCBTable[message.PCBTableLocation].PCB_blockedWakeUpSecs = simClock[1] + eventTimeLastedSecs;
+			PCBTable[message.PCBTableLocation].PCB_timeUsedLastBurst = preempted;
+			PCBTable[message.PCBTableLocation].PCB_timeSliceUnused = timeSlice - preempted;
+			PCBTable[message.PCBTableLocation].PCB_totalTimeInSystem += preempted;
+			running = 0;
+			message.didTerminate = false;
+			message.mesg_type = getppid();
+			message.PCBTableLocation = location;
+
+			if (msgsnd(messageBoxID, &message, sizeof(message), IPC_NOWAIT) == -1){ //IPC_NOWAIT specified so eecution contineus to break
+				perror("user--------------: failed to send to parent box");
+			}
+			break; //break inner loop
+		} else { 
 			//executes of getsBlockedByEvent results in all time being usedi
-			int timeSliceUsed = message.timeSliceAssigned;
+			timeSliceUsed = timeSlice;
 			//printf("-----------USER: PCBTableLocation is %d\n", message.PCBTableLocation);
 			PCBTable[message.PCBTableLocation].PCB_timeUsedLastBurst = timeSliceUsed;
 			PCBTable[message.PCBTableLocation].PCB_totalTimeInSystem += timeSliceUsed;
 			PCBTable[message.PCBTableLocation].PCB_localSimPid = getpid();
-			//printf("USER: Time used %d\n", PCBTable[message.PCBTableLocation].PCB_totalTimeInSystem);
-			//message.PCBTableLocation = message.PCBTableLocation;
-			//message.didTerminate = false;
-			//printf("-------------USER: IN CHILD ELSE STATEMENT - timeSliceUsed is %d\n", timeSliceUsed);
-			//printf("------------USER: IN CHILD - DID NOT TERMINATE.  SENDING MESSAGE TO OSS\n");	
+			PCBTable[message.PCBTableLocation].PCB_processBlocked = 0;
+			message.didTerminate = false;
+			message.mesg_type = getppid();
+			message.PCBTableLocation = location;
 			running = 0;
+		
+			if (msgsnd(messageBoxID, &message, sizeof(message), IPC_NOWAIT) == -1){ //IPC_NOWAIT specified so eecution contineus to break
+				perror("user--------------: failed to send to parent box");
+			}
 		}
-		printf("running is %d\n", running);
-	message.mesg_type = 1;
-	if (msgsnd(messageBoxID, &message, sizeof(message), IPC_NOWAIT) == -1){ //IPC_NOWAIT specified so eecution contineus to break
-		perror("user--------------: failed to send to parent box");
+		break;
 	}
-	//break; //break the inner while loop
-	}
-	printf("Waiting for a message from %d\n", getppid());
+
 	msgrcv(messageBoxID, &message, sizeof(message), myPID, 0); //retrieve message from message box.  child is blocked unless there is a message to take from box
-	printf("Received message from %d\n", getppid());
-	printf("message type was %d\n", message.mesg_type);
+	
+	if (PCBTable[message.PCBTableLocation].PCB_processBlocked == 1){ //if the process was previously blocked, use its remaining timeSlice
+		timeSlice = PCBTable[message.PCBTableLocation].PCB_timeSliceUnused; //assigned amount of unused timeSlice
+	} else {
+		timeSlice = message.timeSliceAssigned; //otherwise, process as full timeSlice
+	}
+	
+	location = message.PCBTableLocation;
+	PCBTable[location].PCB_processBlocked = 0; //unmark the process as blocked.  
 	running = 1;
+
 }
+
 }
 void handle(int signo){
 	if(signo == SIGINT){
