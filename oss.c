@@ -38,7 +38,7 @@ int main (int argc, char *argv[]) {
 	int processCount = 0; //current number of processes
 	int processLimit = 100; //max number of processes allowed by assignment parameters
 	int totalProcessesCreated = 0; //keeps track of all processes created	
-	double terminateTime = 20; //used by setperiodic to terminate program
+	double terminateTime = 3; //used by setperiodic to terminate program
 
 //open file for writing	
 	fp = fopen(fileName, "w");
@@ -76,23 +76,23 @@ int main (int argc, char *argv[]) {
 		perror("oss: Could not create child mail box");
 		return 1;
 	}
-//sends a messag to the box	
-//	printf("IN PARENT - SENDING FIRST MESSAGE TO BOX\n");
-//	message.mesg_type = 1;	
-//	if(msgsnd(messageBoxID, &message, sizeof(message), 0) == -1){
-//		perror("oss: Failed to send message to child");
-//	}
 
 int counter = 0;
-int newProcess;
-int untilNextSecs;
-int untilNextNS;
+int newProcess = 1;
 
-while(counter < 20 ){ 
-	newProcess = 0; //each time loop runs, rest new proces to 0	
+//advance clock to first process
+int untilNextSecs = rand() % maxTimeBetweenNewProcsSecs;
+int untilNextNS = rand() % maxTimeBetweenNewProcsNS;
 
+simClock[0] += untilNextNS;
+simClock[1] += untilNextSecs;
+
+while(counter < 20){ //setting max loops because program will crash if left to run infinitely.
+	counter++;
+	newProcess = 0; //turn off newProcess until the next time a new process is due
 	//find the next time a new process is to be created
-	//increments throughout life of OSS
+	
+	//really uncertain about this logic
 	int randomSecs = rand() % maxTimeBetweenNewProcsSecs;
 	int randomNS = rand() % maxTimeBetweenNewProcsNS;
 
@@ -100,34 +100,30 @@ while(counter < 20 ){
 	untilNextNS += randomNS;
 
 	// if the simclock has reached a time for a new process, set the newProcess flag to 1
+	// not to sure about this logic
 	if (simClock[0] >= untilNextNS && simClock[1] >= untilNextSecs){
 		newProcess = 1;
 	} else { //otherwise increment the clock to the next time a process should be created
 		simClock[0] += untilNextNS; 
 		simClock[1] += untilNextSecs;
-		newProcess = 1;
 	}	
-		
+
+	while (newProcess == 1){	
+		newProcess = 0; //change flag back to 0
 		//create PCBTable Entry
 		//returns first available index.  returns -1 if no locations are available to be written to in the PCB
 		if ((PCBIndex = FindIndex(bitVector, 18 , 0)) == -1){
-			printf("No available locatiosns in PCB"); //if no location is available
+			fprintf(fp, "OSS: Attempted to create process. No available locations in PCB\n"); //if no location is available
+			fflush(fp);
 		}
-
 		//if its time for a new process fork child process
-		if (newProcess == 1){
 			if ((childPid = fork()) == -1){ 
-				perror("oss: failed to fork child");
-			}
-		} else {
-			continue; //restart the while loop if it  wasn't time for a new process
-		}
-		
+			perror("oss: failed to fork child");
+		}	
 		//exec child process
 		if (childPid == 0){
 			execl("./user", NULL);	
 		} else {
-		
 			//parent process sets priority and initalizes the PCBTable Entry
 		
 			int priority = (rand() % 100) + 1; //generate random number between 1 and 10
@@ -139,44 +135,52 @@ while(counter < 20 ){
 			} else {
 				processPriority = 1; //user process
 			}
-
-			printf("*****  Created process with priority of %d\n", processPriority);
-			
 			if (bitVector[PCBIndex] == 0){	//0 indicates that a table location is available to be used
 //				printf("OSS: creating PCBTableEntry\n");
-				PCBTable[PCBIndex].PCB_CPUTimeUsed += 0;
-				PCBTable[PCBIndex].PCB_timeUsedLastBurst += 0;
-				PCBTable[PCBIndex].PCB_processPriority = processPriority; //assigns processPriority 
+				PCBTable[PCBIndex].PCB_CPUTimeUsed = 0;
+				PCBTable[PCBIndex].PCB_timeUsedLastBurst = 0;
 				PCBTable[PCBIndex].PCB_localSimPid = childPid;
+				PCBTable[PCBIndex].PCB_processBlocked = 0;
+				PCBTable[PCBIndex].PCB_processPriority = processPriority;
+				PCBTable[PCBIndex].PCB_index = PCBIndex;
 				fprintf(fp, "OSS: Generating process with PID %d ", PCBTable[PCBIndex].PCB_localSimPid);
 				bitVector[PCBIndex] = 1;
 			}
 		}
-
 		//IF REAL TIME PROCESS QUEUE IN ROUND ROBIN, OTHERWISE QUEUE TO FEEDBACK QUEUE
-
 		if ((PCBTable[PCBIndex].PCB_processPriority) == 0){ //Queue to 0 level if real tiem process
 			enqueue(roundRobinQueue, childPid);
 		} else {
 			enqueue(feedbackQueueLevel1, childPid); //Queue to to 1 Level if user process.
 		}
-
-
 		fprintf(fp, "and putting it in Queue %d at time %d.%d\n", PCBTable[PCBIndex].PCB_processPriority, simClock[1], simClock[0]);
 		fflush(fp);
-
-
 		//SCHEDULING ALGORITHM
 		int index;
 		int n = sizeof(PCBTable)/sizeof(PCBTable[0]); //get the number of elements in pcbtable
 
-		//check if any processes are in the 0 queue
-		if(!isEmpty(roundRobinQueue)){	
+		//check the blocked Queue first
+		if(!isEmpty(blockedQueue)){
+			for (index = 0; index <=n; index++){
+				//uncertain about this logic
+				if(simClock[0] >= PCBTable[index].PCB_blockedWakeUpNS && simClock[1] >= PCBTable[index].PCB_blockedWakeUpSecs){//if the simClock passed the wake up time
+					fprintf(fp, "OSS: Waking up process %d\n", PCBTable[index].PCB_localSimPid);
+					fflush(fp);
+					message.mesg_type = PCBTable[index].PCB_localSimPid;
+					message.timeSliceAssigned = PCBTable[index].PCB_timeSliceUnused;
+					message.PCBTableLocation = PCBTable[index].PCB_index;
+					dequeue(blockedQueue);
+				}
+			}	
+		//check roundRobnQueue
+		} else 	if(!isEmpty(roundRobinQueue)){  
 			for (index = 0; index <= n; index++){ //loop through the PCBTable to find the 
 				if(PCBTable[index].PCB_localSimPid == front(roundRobinQueue)){
 					message.mesg_type = PCBTable[index].PCB_localSimPid;
 					message.timeSliceAssigned = assignTimeSlice(PCBTable[index].PCB_processPriority);
-					message.PCBTableLocation = index;
+					
+					message.PCBTableLocation = PCBTable[index].PCB_index;
+					//message.PCBTableLocation = index;
 					dequeue(roundRobinQueue);
 				}
 			}
@@ -184,9 +188,11 @@ while(counter < 20 ){
 		} else if(!isEmpty(feedbackQueueLevel1)){
 			for (index = 0; index <= n; index++){
 				if(PCBTable[index].PCB_localSimPid == front(feedbackQueueLevel1)){
+					printf("Found %d in location %d\n", front(feedbackQueueLevel1), index);
 					message.mesg_type = PCBTable[index].PCB_localSimPid;
 					message.timeSliceAssigned = assignTimeSlice(PCBTable[index].PCB_processPriority);
-					message.PCBTableLocation = index;
+					message.PCBTableLocation = PCBTable[index].PCB_index;
+				//	message.PCBTableLocation = index;
 					dequeue(feedbackQueueLevel1);
 				}
 			}
@@ -194,9 +200,11 @@ while(counter < 20 ){
 		} else if(!isEmpty(feedbackQueueLevel2)){
 			for (index = 0; index <= n; index++){
 				if(PCBTable[index].PCB_localSimPid == front(feedbackQueueLevel2)){
+					printf("Found %d in location %d\n", front(feedbackQueueLevel2), index);
 					message.mesg_type = PCBTable[index].PCB_localSimPid;
 					message.timeSliceAssigned = assignTimeSlice(PCBTable[index].PCB_processPriority);
-					message.PCBTableLocation = index;
+					message.PCBTableLocation = PCBTable[index].PCB_index;
+					//message.PCBTableLocation = index;
 					dequeue(feedbackQueueLevel2);
 				}
 			}
@@ -204,55 +212,59 @@ while(counter < 20 ){
 		} else if(!isEmpty(feedbackQueueLevel3)){
 			for (index = 0; index <= n; index++){
 				if(PCBTable[index].PCB_localSimPid == front(feedbackQueueLevel3)){
+					printf("Found %d in location %d\n", front(feedbackQueueLevel3), index);
 					message.mesg_type = PCBTable[index].PCB_localSimPid;
 					message.timeSliceAssigned = assignTimeSlice(PCBTable[index].PCB_processPriority);
-					message.PCBTableLocation = index;
+					message.PCBTableLocation = PCBTable[index].PCB_index;
+					//message.PCBTableLocation = index;
 					dequeue(feedbackQueueLevel3);
 				}
 			}
-		}
-		
+		} 
 		//launch the process
-
 		//represents the amount of time it took to schedule and launch the process
 		int timeToSchedule = (rand() % 9900) + 100;
 		simClock[0] += timeToSchedule;
-	
-		
 		//send message to child process 
 		printf("OSS: Sending message with message type %d\n", message.mesg_type);
-		fprintf(fp, "Dispatching process with PID %d from queue %d at time %d.%d\n", PCBTable[message.PCBTableLocation].PCB_localSimPid, PCBTable[message.PCBTableLocation].PCB_processPriority, simClock[1], simClock[0]);
-		fflush(fp);
-		
+		if (PCBTable[message.PCBTableLocation].PCB_processBlocked == 1){
+			fprintf(fp, "Dispatching process with PID %d from Blocked Queue at time %d.%d\n", PCBTable[message.PCBTableLocation].PCB_localSimPid, simClock[1], simClock[0]);
+			fflush(fp);
+	
+			}else if(PCBTable[message.PCBTableLocation].PCB_processBlocked == 0){	
+				fprintf(fp, "Dispatching process with PID %d from queue %d at time %d.%d\n", PCBTable[message.PCBTableLocation].PCB_localSimPid, PCBTable[message.PCBTableLocation].PCB_processPriority, simClock[1], simClock[0]);
+				fflush(fp);
+			}
 		if(msgsnd(messageBoxID, &message, sizeof(message), IPC_NOWAIT) ==  -1){
 			perror("oss: failed to send message to user");
 		}
-		
 		//receive a message
 		printf("OSS is waiting for a message\n");
-		if (msgrcv(messageBoxID, &message, sizeof(message), 1, 0) == -1){
+		if (msgrcv(messageBoxID, &message, sizeof(message), getpid(), 0) == -1){
 			perror("oss: Failed to received a message");
 		}
 		printf("OSS received a message from Process PID %d\n", PCBTable[message.PCBTableLocation].PCB_localSimPid);
 
 		fprintf(fp, "OSS: Receiving that process with PID %d ran for %d nanoseconds\n", PCBTable[message.PCBTableLocation].PCB_localSimPid, PCBTable[message.PCBTableLocation].PCB_timeUsedLastBurst);
 		fflush(fp);
-		
+		//Process the message
+		if (PCBTable[message.PCBTableLocation].PCB_processBlocked == 1){
+			enqueue(blockedQueue, PCBTable[message.PCBTableLocation].PCB_localSimPid);
+			fprintf(fp, "Process %d was blocked by operation.  Placing into Blocked Queue\n", PCBTable[message.PCBTableLocation].PCB_localSimPid);
+			fflush(fp);
 		//roundRobinProcesses
-		if (PCBTable[message.PCBTableLocation].PCB_processPriority == 0){
+		} else if (PCBTable[message.PCBTableLocation].PCB_processPriority == 0){
 			if(message.didTerminate == false){
-			
+				PCBTable[message.PCBTableLocation].PCB_processPriority = 0; //real time processes stay in 0 Queue	
 				enqueue(roundRobinQueue, PCBTable[message.PCBTableLocation].PCB_localSimPid);
 				fprintf(fp,"Process %d did not terminate.  Placing into Queue %d\n", PCBTable[message.PCBTableLocation].PCB_localSimPid, PCBTable[message.PCBTableLocation].PCB_processPriority);
 				fflush(fp);
-
 			} else if (message.didTerminate == true){
-
-			fprintf(fp, "Process with PID %d terminated, it used total of %d nanoseconds of CPU time\n", PCBTable[message.PCBTableLocation].PCB_localSimPid, PCBTable[message.PCBTableLocation].PCB_totalTimeInSystem);
-			fflush(fp);
-			bitVector[message.PCBTableLocation] = 0;
+				fprintf(fp, "Process with PID %d terminated, it used total of %d nanoseconds of CPU time\n", PCBTable[message.PCBTableLocation].PCB_localSimPid, PCBTable[message.PCBTableLocation].PCB_totalTimeInSystem);
+				fflush(fp);
+				bitVector[message.PCBTableLocation] = 0;
+				kill(PCBTable[message.PCBTableLocation].PCB_localSimPid, SIGKILL);
 			}
-
 		//feedbackQueueLevel1
 		} else if (PCBTable[message.PCBTableLocation].PCB_processPriority == 1){
 			if(message.didTerminate == false){
@@ -261,12 +273,11 @@ while(counter < 20 ){
 				fprintf(fp,"Process %d did not terminate.  Placing into Queue %d\n", PCBTable[message.PCBTableLocation].PCB_localSimPid, PCBTable[message.PCBTableLocation].PCB_processPriority);
 				fflush(fp);
 			} else if (message.didTerminate == true){
-			fprintf(fp, "Process with PID %d terminated, it used total of %d nanoseconds of CPU time\n", PCBTable[message.PCBTableLocation].PCB_localSimPid, PCBTable[message.PCBTableLocation].PCB_totalTimeInSystem);
-			fflush(fp);
-			bitVector[message.PCBTableLocation] = 0;
-			
+				fprintf(fp, "Process with PID %d terminated, it used total of %d nanoseconds of CPU time\n", PCBTable[message.PCBTableLocation].PCB_localSimPid, PCBTable[message.PCBTableLocation].PCB_totalTimeInSystem);
+				fflush(fp);
+				bitVector[message.PCBTableLocation] = 0;
+				kill(PCBTable[message.PCBTableLocation].PCB_localSimPid, SIGKILL);
 			}
-
 		//feedbackQueueLevel2
 		} else if (PCBTable[message.PCBTableLocation].PCB_processPriority == 2){
 			if(message.didTerminate == false){
@@ -274,14 +285,12 @@ while(counter < 20 ){
 				enqueue(feedbackQueueLevel3, PCBTable[message.PCBTableLocation].PCB_localSimPid); //queue into next level of queue
 				fprintf(fp,"Process %d did not terminate.  Placing into Queue %d\n", PCBTable[message.PCBTableLocation].PCB_localSimPid, PCBTable[message.PCBTableLocation].PCB_processPriority);
 				fflush(fp);
-
 			} else if (message.didTerminate == true){
-
-			fprintf(fp, "Process with PID %d terminated, it used total of %d nanoseconds of CPU time\n", PCBTable[message.PCBTableLocation].PCB_localSimPid, PCBTable[message.PCBTableLocation].PCB_totalTimeInSystem);
-			fflush(fp);
-			bitVector[message.PCBTableLocation] = 0;
+				fprintf(fp, "Process with PID %d terminated, it used total of %d nanoseconds of CPU time\n", PCBTable[message.PCBTableLocation].PCB_localSimPid, PCBTable[message.PCBTableLocation].PCB_totalTimeInSystem);
+				fflush(fp);
+				bitVector[message.PCBTableLocation] = 0;
+				kill(PCBTable[message.PCBTableLocation].PCB_localSimPid, SIGKILL);
 			}
-
 		//feedbackQueueLevel3
 		} else if (PCBTable[message.PCBTableLocation].PCB_processPriority == 3){
 			if(message.didTerminate == false){
@@ -289,29 +298,30 @@ while(counter < 20 ){
 				enqueue(feedbackQueueLevel1, PCBTable[message.PCBTableLocation].PCB_localSimPid); //queues into feedback level 1
 				fprintf(fp,"Process %d did not terminate.  Placing into Queue %d\n", PCBTable[message.PCBTableLocation].PCB_localSimPid, PCBTable[message.PCBTableLocation].PCB_processPriority);
 				fflush(fp);
-
 			} else if (message.didTerminate == true){
-			fprintf(fp, "Process with PID %d terminated, it used total of %d nanoseconds of CPU time\n", PCBTable[message.PCBTableLocation].PCB_localSimPid, PCBTable[message.PCBTableLocation].PCB_totalTimeInSystem);
-			fflush(fp);
-			bitVector[message.PCBTableLocation] = 0;
-
+				fprintf(fp, "Process with PID %d terminated, it used total of %d nanoseconds of CPU time\n", PCBTable[message.PCBTableLocation].PCB_localSimPid, PCBTable[message.PCBTableLocation].PCB_totalTimeInSystem);
+				fflush(fp);
+				bitVector[message.PCBTableLocation] = 0;
+				kill(PCBTable[message.PCBTableLocation].PCB_localSimPid, SIGKILL);
 			}
+		
 		}
-counter++;
-}
+	} //inner while loop
+} //outer while loop
 
 
 //wait(NULL);
-kill(0, SIGKILL);
 printf("****************************simClock ended at %d.%d\n", simClock[1],simClock[0]);
+
 printf("created %d processes\n", totalProcessesCreated);
 //free  up memory queue and shared memory
-shmctl(shmidPCB, IPC_RMID, NULL);
-shmctl(shmidSimClock, IPC_RMID, NULL);
 shmdt(simClock);
 shmdt(PCBTable);
+shmctl(shmidPCB, IPC_RMID, NULL);
+shmctl(shmidSimClock, IPC_RMID, NULL);
 msgctl(messageBoxID, IPC_RMID, NULL);
 
+kill(0, SIGKILL); //without this, some user processes continue to run even after OSS terminates
 return 0;
 }
 
@@ -433,14 +443,6 @@ int rear(Queue* queue){
         return queue->array[queue->rear];
 }
 
-
-//convert the timeClock sec and nanoseconds
-void timeConvert(){
-	if (simClock[0] > 1000000000){ //if nanoseconds clock is greater then 1B convert to seconds
-		simClock[0] += simClock[0]/1000000000; //add number of fully divisible by nanoseconds to seconds clock.  will truncate
-		simClock[1] = simClock[0]%1000000000; //assign remainder of nanoseconds to nanosecond clock
-	}
-}
 
 /*
  KEPT FOR FUTURE USE
