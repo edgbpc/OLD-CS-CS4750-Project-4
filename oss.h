@@ -33,7 +33,10 @@ typedef struct {
 	int PCB_localSimPid; //local simulated pid
 	int PCB_processPriority; //process priority, if any.
 	int PCB_processBlocked;
-	
+	int PCB_blockedWakeUpNS;
+	int PCB_blockedWakeUpSecs;
+	int PCB_timeSliceUnused;
+	int PCB_index;
 } ProcessControlBlock;
 
 
@@ -41,8 +44,8 @@ typedef struct {
 	long mesg_type; //1 message for OSS, 2 message for USER
 	int PCBTableLocation; //to indicate what index the process is stored in the processcontroltable
 	int timeSliceAssigned;
-	int timeSliceUsed;
-	int timeSliceUnused;
+//	int timeSliceUsed;
+//	int timeSliceUnused;
 	bool didTerminate;
 } Message;
 
@@ -57,8 +60,6 @@ typedef struct
 static int setperiodic(double sec);
 void handle(int signo);
 int assignTimeSlice(int processPriority);
-void scheduleProcess(Queue* queue, int PCBIndex);
-void dispatch();
 
 //Queue Prototypes
 Queue* createQueue(unsigned capacity);
