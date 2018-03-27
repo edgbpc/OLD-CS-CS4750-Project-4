@@ -1,0 +1,39 @@
+tun run the simulator, ./oss.
+
+this program contains no options.
+
+General notes - program is not 100% complete.
+
+I feel like my logic for the enqueue/dequeue works as intended.  I also feel like my user processis also correct.
+
+I didn't quite understand all the conditions that was supposed to be the blocked process.  I assumed that r.s was now long the program was supposed to be blocked so that's what mine does. I also assumed that the p was how much the program used before it was blocked.
+
+Where I think i fall short is the generation of new processes.  Also, letting the program run contiously, eventually I get fork errors.  I have it set so it only runs a few times so the log file doesn't get filled with the error message of not being able to fork a new process.
+
+Looks like my processes are travesing the various Queues correctly.
+
+My approach:
+
+OSS -
+
+After setup and jumping simClock to first process creation time, program drops into first While Loop.  At tope of loop, decides if its time for a process and increments clock if not.
+
+then drops to new process loop, if it was time for a new process, Find available location in PCB (FindIndex function), fork the child and start User process.
+
+The parent process initalizes the PCB table entry and assign process priority.  Scheduling algorithm looks at each Queue starting with Blocked Queue and progresses until Level 3 queue.  First time is finds a Queue not empty, it grabs the simPid and timeSlice and then drops to sending a message to the User.
+
+I use the SimPid to as the message type for the message queue so only the process with matching PID can get the message and execute.
+
+OSS waits on receiving message after it sends the message to USER.
+
+Once it receives a message, the process is either requeued, moved to block queue, or its termination information is processed.  If requeued, user processes drop to the next queue.
+
+USER-
+
+After setup, program drops to While(1).  It runs contiously in this loop until it terminates.  On first run, it'll drop from start of loop to waiting on a message from OSS.  After it receives a message, it can though proceed through the while(running == 1) loop. In this loop, it makes decisions of its going to terminate, be blocked, or just run through entire timeSlice.  Its timeslice is based on if it was previously blocked.  If it was previously blocked, then it timeslice on this run is what it didn't use before.  if it wasn't blocked before, then it gets a new timeslice.
+
+Unfortantely, there is not final output of statistics such as idle time, total use time, etc.
+
+I think my biggest issue I could not figure out what was really making the program pick times for new processes, increment simCLock for that and then controlling for if the clock was at the time for a new proess.  I am really quite unsure about the logic i wrote for that.  THis carried over into difficulty with determining if a process was ready to wake up from the blocked queue.
+
+
